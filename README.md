@@ -8,7 +8,7 @@ the next random splash, otherwise the splash is reverted and another random spla
 
 The result: paint art made by computer
 
-
+![Sample after 8780 splashes](./after8780.png)
 
 See it in action: guckstift.github.io/image-evolver/
 
