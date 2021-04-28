@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>image evolver</title>
+	</head>
+	<body>
+		<img src="test.jpg" id="original">
+		<canvas id="canvas" width="256" height="256"></canvas>
+		<p>splashes painted: <span id="splashCount">0</span></p>
+		<p><button onclick="play_toggle()" id="toggleBtn">Pause</button>
+		<p>
+			iterations per frame: <span id="iterLabel">1</span>
+			(increase this value to let the algorithm run faster)
+		</p>
+		<p>
+			<input
+				type="range" min="1" max="256" id="iterationsSlider" value="1"
+				step="1" style="width:500px" oninput="change_iters()">
+		</p>
+		<script>
+			let running = true;
+			let iterations_per_frame = 1;
+			
+			onload = e => {
+				let ctx = canvas.getContext("2d", {alpha: false});
+				let backup = create_offscreen();
+				let org = ctx_from_image(original);
+				let splashes = 0;
+				
+				requestAnimationFrame(function frame() {
+					if(running) {
+						for(let i=0; i<iterations_per_frame; i++) {
+							iteration();
+						}
+					}
+					
+					requestAnimationFrame(frame);
+				});
+				
+				function iteration()
+				{
+					let prep = splash_prep();
+					let rect = prep.rect;
+					
+					backup.drawImage(
+						canvas,
+						rect[0], rect[1], rect[2], rect[3],
+						rect[0], rect[1], rect[2], rect[3]
+					);
+					
+					splash(prep);
+					
+					let ctx_dist = evaluate(ctx, rect);
+					let backup_dist = evaluate(backup, rect);
+					
+					if(backup_dist < ctx_dist) {
+						ctx.drawImage(
+							backup.canvas,
+							rect[0], rect[1], rect[2], rect[3],
+							rect[0], rect[1], rect[2], rect[3]
+						);
+						
+						return false;
+					}
+					else {
+						splashes ++;
+						splashCount.innerText = "" + splashes;
+						return true;
+					}
+				}
+				
+				function splash_prep()
+				{
+					let cx = rand_int(0, 255);
+					let cy = rand_int(0, 255);
+					let r = 1 + Math.random() ** 2 * 128;
+					
+					return {
+						cx, cy, r,
+						rect: [cx - r - 1, cy - r - 1, r * 2 + 2, r * 2 + 2]
+					};
+				}
+				
+				function splash(prep)
+				{
+					let alpha = rand_int(1, 255) / 255;
+					let red = rand_int(0, 255);
+					let green = rand_int(0, 255);
+					let blue = rand_int(0, 255);
+					
+					ctx.beginPath();
+					ctx.fillStyle = `rgba(${red},${green},${blue},${alpha})`;
+					ctx.arc(prep.cx, prep.cy, prep.r, 0, 2 * Math.PI);
+					ctx.fill();
+				}
+				
+				function evaluate(ctx, rect)
+				{
+					let data = ctx.getImageData(
+						rect[0], rect[1], rect[2], rect[3]
+					);
+					
+					let orgdata = org.getImageData(
+						rect[0], rect[1], rect[2], rect[3]
+					);
+					
+					let sum = 0;
+					
+					data.data.forEach((p, i) => {
+						sum += Math.abs(orgdata.data[i] - p);
+					});
+					
+					return sum;
+				}
+			};
+			
+			function play_toggle()
+			{
+				running = !running;
+				toggleBtn.innerText = running ? "Pause" : "Continue";
+			}
+			
+			function change_iters()
+			{
+				iterations_per_frame = iterationsSlider.value;
+				iterLabel.innerText = "" + iterations_per_frame;
+			}
+			
+			function create_offscreen()
+			{
+				let off = document.createElement("canvas");
+				off.width = 256;
+				off.height = 256;
+				return off.getContext("2d", {alpha: false});
+			}
+			
+			function ctx_from_image(img)
+			{
+				let ctx = create_offscreen();
+				ctx.drawImage(img, 0, 0);
+				return ctx;
+			}
+			
+			function rand_int(min, max)
+			{
+				return min + Math.floor(Math.random() * (max - min + 1));
+			}
+		</script>
+	</body>
+</html>
