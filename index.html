@@ -1,150 +1,198 @@
 <!DOCTYPE html>
 <html lang="en">
-	<head>
-		<title>image evolver</title>
-	</head>
-	<body>
-		<img src="test.jpg" id="original">
-		<canvas id="canvas" width="256" height="256"></canvas>
-		<p>splashes painted: <span id="splashCount">0</span></p>
-		<p><button onclick="play_toggle()" id="toggleBtn">Pause</button>
-		<p>
-			iterations per frame: <span id="iterLabel">1</span>
-			(increase this value to let the algorithm run faster)
-		</p>
-		<p>
-			<input
-				type="range" min="1" max="256" id="iterationsSlider" value="1"
-				step="1" style="width:500px" oninput="change_iters()">
-		</p>
-		<script>
-			let running = true;
-			let iterations_per_frame = 1;
+<head>
+<title>image evolver</title>
+</head>
+<body>
+<img src="test.jpg" id="original">
+<canvas id="canvas"></canvas>
+<p>splashes painted: <span id="splashCount">0</span></p>
+<p>total iterations: <span id="iterCount">0</span></p>
+<p><button id="toggleBtn">Pause</button>
+<p><button id="replayBtn">Replay</button>
+<script type="module">
+
+canvas.width = original.width;
+canvas.height = original.height;
+
+let running = true;
+let splashes = 0;
+let totalIterCount = 0;
+let best_sum = Infinity;
+let ctx = canvas.getContext("2d", {alpha: false});
+let org_canvas = document.createElement("canvas");
+let org_ctx = org_canvas.getContext("2d", {alpha: false});
+let w = org_canvas.width = original.width;
+let h = org_canvas.height = original.height;
+let testdata = ctx.createImageData(w, h);
+let testdata_d = testdata.data;
+let backup = ctx.createImageData(w, h);
+let backup_d = backup.data;
+let history = [];
+
+org_ctx.drawImage(original, 0, 0, w, h);
+
+let orgdata = org_ctx.getImageData(0, 0, w, h);
+let orgdata_d = orgdata.data;
+
+for(let y=0; y<h; y++) {
+	for(let x=0; x<w; x++) {
+		let i = (x + y*w) * 4;
+		testdata_d[i + 0] = 0;
+		testdata_d[i + 1] = 0;
+		testdata_d[i + 2] = 0;
+		testdata_d[i + 3] = 255;
+		backup_d[i + 0] = 0;
+		backup_d[i + 1] = 0;
+		backup_d[i + 2] = 0;
+		backup_d[i + 3] = 255;
+	}
+}
+
+toggleBtn.onclick = play_toggle;
+replayBtn.onclick = replay;
+requestAnimationFrame(frame);
+
+function frame() {
+	if(running) {
+		while(!iteration());
+		while(!iteration());
+		while(!iteration());
+	}
+	
+	requestAnimationFrame(frame);
+}
+
+function iteration()
+{
+	let entry = splash();
+	totalIterCount ++;
+	iterCount.innerText = "" + totalIterCount;
+	
+	if(evaluate()) {
+		backup_d.set(testdata_d);
+		ctx.putImageData(testdata, 0, 0);
+		testdata = ctx.getImageData(0, 0, w, h);
+		testdata_d = testdata.data;
+		splashes ++;
+		splashCount.innerText = "" + splashes;
+		history.push(entry);
+		return true;
+	}
+	else {
+		testdata_d.set(backup_d);
+		return false;
+	}
+}
+
+function draw_splash(cx, cy, ra, r,g,b,a)
+{
+	let nalpha = 1 - a;
+	
+	for(let y=0; y<h; y++) {
+		for(let x=0; x<w; x++) {
+			let d = Math.sqrt((x-cx)**2 + (y-cy)**2);
 			
-			onload = e => {
-				let ctx = canvas.getContext("2d", {alpha: false});
-				let backup = create_offscreen();
-				let org = ctx_from_image(original);
-				let splashes = 0;
+			if(d < ra) {
+				let i = (x + y*w) * 4;
 				
-				requestAnimationFrame(function frame() {
-					if(running) {
-						for(let i=0; i<iterations_per_frame; i++) {
-							iteration();
-						}
-					}
-					
-					requestAnimationFrame(frame);
-				});
-				
-				function iteration()
-				{
-					let prep = splash_prep();
-					let rect = prep.rect;
-					
-					backup.drawImage(
-						canvas,
-						rect[0], rect[1], rect[2], rect[3],
-						rect[0], rect[1], rect[2], rect[3]
-					);
-					
-					splash(prep);
-					
-					let ctx_dist = evaluate(ctx, rect);
-					let backup_dist = evaluate(backup, rect);
-					
-					if(backup_dist < ctx_dist) {
-						ctx.drawImage(
-							backup.canvas,
-							rect[0], rect[1], rect[2], rect[3],
-							rect[0], rect[1], rect[2], rect[3]
-						);
-						
-						return false;
-					}
-					else {
-						splashes ++;
-						splashCount.innerText = "" + splashes;
-						return true;
-					}
-				}
-				
-				function splash_prep()
-				{
-					let cx = rand_int(0, 255);
-					let cy = rand_int(0, 255);
-					let r = 1 + Math.random() ** 2 * 128;
-					
-					return {
-						cx, cy, r,
-						rect: [cx - r - 1, cy - r - 1, r * 2 + 2, r * 2 + 2]
-					};
-				}
-				
-				function splash(prep)
-				{
-					let alpha = rand_int(1, 255) / 255;
-					let red = rand_int(0, 255);
-					let green = rand_int(0, 255);
-					let blue = rand_int(0, 255);
-					
-					ctx.beginPath();
-					ctx.fillStyle = `rgba(${red},${green},${blue},${alpha})`;
-					ctx.arc(prep.cx, prep.cy, prep.r, 0, 2 * Math.PI);
-					ctx.fill();
-				}
-				
-				function evaluate(ctx, rect)
-				{
-					let data = ctx.getImageData(
-						rect[0], rect[1], rect[2], rect[3]
-					);
-					
-					let orgdata = org.getImageData(
-						rect[0], rect[1], rect[2], rect[3]
-					);
-					
-					let sum = 0;
-					
-					data.data.forEach((p, i) => {
-						sum += Math.abs(orgdata.data[i] - p);
-					});
-					
-					return sum;
-				}
-			};
-			
-			function play_toggle()
-			{
-				running = !running;
-				toggleBtn.innerText = running ? "Pause" : "Continue";
+				testdata_d[i + 0] = testdata_d[i + 0] * nalpha + r * a;
+				testdata_d[i + 1] = testdata_d[i + 1] * nalpha + g * a;
+				testdata_d[i + 2] = testdata_d[i + 2] * nalpha + b * a;
 			}
+		}
+	}
+}
+
+function splash()
+{
+	let cx = Math.random() * 255 | 0;
+	let cy = Math.random() * 255 | 0;
+	let r = (1 + Math.random() ** 2 * 128) | 0;
+	let alpha = (1 + Math.random() * 255) / 255;
+	let red = Math.random() * 255 | 0;
+	let green = Math.random() * 255 | 0;
+	let blue = Math.random() * 255 | 0;
+	
+	draw_splash(cx, cy, r, red, green, blue, alpha);
+	return {cx, cy, r, alpha, red, green, blue};
+}
+
+function evaluate(ctx, rect)
+{
+	let sum = 0;
+	
+	for(let y=0; y<h; y++) {
+		for(let x=0; x<w; x++) {
+			let i = (x + y*w) * 4;
 			
-			function change_iters()
-			{
-				iterations_per_frame = iterationsSlider.value;
-				iterLabel.innerText = "" + iterations_per_frame;
-			}
+			sum += (
+				Math.abs(orgdata_d[i + 0] - testdata_d[i + 0]) +
+				Math.abs(orgdata_d[i + 1] - testdata_d[i + 1]) +
+				Math.abs(orgdata_d[i + 2] - testdata_d[i + 2])
+			);
+		}
+	}
+	
+	if(sum < best_sum) {
+		best_sum = sum;
+		return true;
+	}
+	
+	return false;
+}
+
+function replay()
+{
+	ctx.fillStyle = "black";
+	ctx.fillRect(0,0,w,h);
+	testdata = ctx.getImageData(0, 0, w, h);
+	testdata_d = testdata.data;
+	
+	let step=0;
+	
+	requestAnimationFrame(replay_frame);
+	
+	function replay_frame()
+	{
+		for(let i=0; i<3 && step < history.length; i++) {
+			let entry = history[step];
 			
-			function create_offscreen()
-			{
-				let off = document.createElement("canvas");
-				off.width = 256;
-				off.height = 256;
-				return off.getContext("2d", {alpha: false});
-			}
+			draw_splash(
+				entry.cx, entry.cy, entry.r,
+				entry.red, entry.green, entry.blue, entry.alpha
+			);
 			
-			function ctx_from_image(img)
-			{
-				let ctx = create_offscreen();
-				ctx.drawImage(img, 0, 0);
-				return ctx;
-			}
-			
-			function rand_int(min, max)
-			{
-				return min + Math.floor(Math.random() * (max - min + 1));
-			}
-		</script>
-	</body>
+			step++;
+		}
+		
+		ctx.putImageData(testdata, 0, 0);
+		splashCount.innerText = "" + step;
+		
+		if(step < history.length) {
+			requestAnimationFrame(replay_frame);
+		}
+	}
+}
+
+function play_toggle()
+{
+	running = !running;
+	toggleBtn.innerText = running ? "Pause" : "Continue";
+}
+
+function ctx_from_image(img)
+{
+	let ctx = create_offscreen();
+	ctx.drawImage(img, 0, 0);
+	return ctx;
+}
+
+function rand_int(min, max)
+{
+	return min + Math.floor(Math.random() * (max - min + 1));
+}
+
+</script>
+</body>
 </html>
