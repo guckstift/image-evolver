@@ -7,18 +7,28 @@
 <img src="test.jpg" id="original">
 <canvas id="canvas"></canvas>
 <p>splashes painted: <span id="splashCount">0</span></p>
-<p>total iterations: <span id="iterCount">0</span></p>
+<p>splashes sampled: <span id="iterCount">0</span></p>
+<p>similarity: <span id="simLabel">0</span> %</p>
 <p><button id="toggleBtn">Pause</button>
 <p><button id="replayBtn">Replay</button>
 <script type="module">
+
+const runs_per_frame = 3;
+
+await new Promise(res => original.onload = res);
 
 canvas.width = original.width;
 canvas.height = original.height;
 
 let running = true;
 let splashes = 0;
-let totalIterCount = 0;
+let iterations = 0;
+let score = 0;
 let best_sum = Infinity;
+let org_sum = 0;
+let similarity = 0;
+let last_similarity = 0;
+let max_power = 0;
 let ctx = canvas.getContext("2d", {alpha: false});
 let org_canvas = document.createElement("canvas");
 let org_ctx = org_canvas.getContext("2d", {alpha: false});
@@ -46,6 +56,7 @@ for(let y=0; y<h; y++) {
 		backup_d[i + 1] = 0;
 		backup_d[i + 2] = 0;
 		backup_d[i + 3] = 255;
+		org_sum += orgdata_d[i + 0] + orgdata_d[i + 1] + orgdata_d[i + 2];
 	}
 }
 
@@ -53,11 +64,43 @@ toggleBtn.onclick = play_toggle;
 replayBtn.onclick = replay;
 requestAnimationFrame(frame);
 
+setInterval(() => {
+	last_similarity = similarity;
+	similarity = 100 * score / org_sum;
+	
+	let sim_diff = similarity - last_similarity;
+	let power = 0;
+	
+	while(sim_diff > 0 && sim_diff < 1) {
+		sim_diff *= 10;
+		power ++;
+	}
+	
+	max_power = Math.max(max_power, power);
+	simLabel.innerText = similarity.toFixed(max_power);
+}, 125);
+
 function frame() {
+	
 	if(running) {
-		while(!iteration());
-		while(!iteration());
-		while(!iteration());
+		let start_time = performance.now();
+		
+		while(true) {
+			let now = performance.now();
+			
+			if(now - start_time <= 16) {
+				iteration();
+			}
+			else {
+				break;
+			}
+		}
+		
+		ctx.putImageData(testdata, 0, 0);
+		testdata = ctx.getImageData(0, 0, w, h);
+		testdata_d = testdata.data;
+		iterCount.innerText = iterations;
+		splashCount.innerText = splashes;
 	}
 	
 	requestAnimationFrame(frame);
@@ -66,16 +109,12 @@ function frame() {
 function iteration()
 {
 	let entry = splash();
-	totalIterCount ++;
-	iterCount.innerText = "" + totalIterCount;
+	iterations ++;
 	
-	if(evaluate()) {
+	if(entry.impro > 0) {
 		backup_d.set(testdata_d);
-		ctx.putImageData(testdata, 0, 0);
-		testdata = ctx.getImageData(0, 0, w, h);
-		testdata_d = testdata.data;
 		splashes ++;
-		splashCount.innerText = "" + splashes;
+		score += entry.impro;
 		history.push(entry);
 		return true;
 	}
@@ -85,61 +124,69 @@ function iteration()
 	}
 }
 
-function draw_splash(cx, cy, ra, r,g,b,a)
-{
-	let nalpha = 1 - a;
-	
-	for(let y=0; y<h; y++) {
-		for(let x=0; x<w; x++) {
-			let d = Math.sqrt((x-cx)**2 + (y-cy)**2);
-			
-			if(d < ra) {
-				let i = (x + y*w) * 4;
-				
-				testdata_d[i + 0] = testdata_d[i + 0] * nalpha + r * a;
-				testdata_d[i + 1] = testdata_d[i + 1] * nalpha + g * a;
-				testdata_d[i + 2] = testdata_d[i + 2] * nalpha + b * a;
-			}
-		}
-	}
-}
-
 function splash()
 {
 	let cx = Math.random() * 255 | 0;
 	let cy = Math.random() * 255 | 0;
-	let r = (1 + Math.random() ** 2 * 128) | 0;
-	let alpha = (1 + Math.random() * 255) / 255;
-	let red = Math.random() * 255 | 0;
-	let green = Math.random() * 255 | 0;
-	let blue = Math.random() * 255 | 0;
-	
-	draw_splash(cx, cy, r, red, green, blue, alpha);
-	return {cx, cy, r, alpha, red, green, blue};
+	let ra = (1 + Math.random() ** 2 * 128) | 0;
+	let r = Math.random() * 255 | 0;
+	let g = Math.random() * 255 | 0;
+	let b = Math.random() * 255 | 0;
+	let a = (1 + Math.random() * 255) / 255;
+	let impro = draw_splash(cx, cy, ra, r, g, b, a);
+	return {cx, cy, ra, r, g, b, a, impro};
 }
 
-function evaluate(ctx, rect)
+function draw_splash(cx, cy, ra, r, g, b, a, test = true)
 {
-	let sum = 0;
+	let nalpha = 1 - a;
+	let dist_sum_before = 0;
+	let dist_sum_after = 0;
+	let sx = Math.max(0, cx - ra);
+	let sy = Math.max(0, cy - ra);
+	let ex = Math.min(w, cx + ra);
+	let ey = Math.min(h, cy + ra);
 	
-	for(let y=0; y<h; y++) {
-		for(let x=0; x<w; x++) {
-			let i = (x + y*w) * 4;
+	for(let y = sy; y < ey; y++) {
+		for(let x = sx; x < ex; x++) {
+			let d = Math.sqrt((x-cx)**2 + (y-cy)**2);
 			
-			sum += (
-				Math.abs(orgdata_d[i + 0] - testdata_d[i + 0]) +
-				Math.abs(orgdata_d[i + 1] - testdata_d[i + 1]) +
-				Math.abs(orgdata_d[i + 2] - testdata_d[i + 2])
-			);
+			if(d < ra) {
+				let i = (x + y*w) * 4;
+				let tr = testdata_d[i + 0];
+				let tg = testdata_d[i + 1];
+				let tb = testdata_d[i + 2];
+				let or, og, ob;
+				
+				if(test) {
+					or = orgdata_d[i + 0];
+					og = orgdata_d[i + 1];
+					ob = orgdata_d[i + 2];
+					dist_sum_before += (
+						Math.abs(or - tr) +
+						Math.abs(og - tg) +
+						Math.abs(ob - tb)
+					);
+				}
+				
+				tr = testdata_d[i + 0] = tr * nalpha + r * a | 0;
+				tg = testdata_d[i + 1] = tg * nalpha + g * a | 0;
+				tb = testdata_d[i + 2] = tb * nalpha + b * a | 0;
+				
+				if(test) {
+					dist_sum_after += (
+						Math.abs(or - tr) +
+						Math.abs(og - tg) +
+						Math.abs(ob - tb)
+					);
+				}
+			}
 		}
 	}
 	
-	if(sum < best_sum) {
-		best_sum = sum;
-		return true;
+	if(test) {
+		return dist_sum_before - dist_sum_after;
 	}
-	
-	return false;
 }
 
 function replay()
@@ -159,8 +206,9 @@ function replay()
 			let entry = history[step];
 			
 			draw_splash(
-				entry.cx, entry.cy, entry.r,
-				entry.red, entry.green, entry.blue, entry.alpha
+				entry.cx, entry.cy, entry.ra,
+				entry.r, entry.g, entry.b, entry.a,
+				false
 			);
 			
 			step++;
@@ -179,18 +227,6 @@ function play_toggle()
 {
 	running = !running;
 	toggleBtn.innerText = running ? "Pause" : "Continue";
-}
-
-function ctx_from_image(img)
-{
-	let ctx = create_offscreen();
-	ctx.drawImage(img, 0, 0);
-	return ctx;
-}
-
-function rand_int(min, max)
-{
-	return min + Math.floor(Math.random() * (max - min + 1));
 }
 
 </script>
