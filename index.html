@@ -9,8 +9,10 @@
 <p>splashes painted: <span id="splashCount">0</span></p>
 <p>splashes sampled: <span id="iterCount">0</span></p>
 <p>similarity: <span id="simLabel">0</span> %</p>
-<p><button id="toggleBtn">Pause</button>
-<p><button id="replayBtn">Replay</button>
+<p><button id="toggleBtn">Pause</button></p>
+<p><button id="replayBtn">Replay</button></p>
+<p><button id="exportBtn">Export</button></p>
+<p><button id="importBtn">Import</button></p>
 <script type="module">
 
 const runs_per_frame = 3;
@@ -29,16 +31,19 @@ let org_sum = 0;
 let similarity = 0;
 let last_similarity = 0;
 let max_power = 0;
+let history = [];
 let ctx = canvas.getContext("2d", {alpha: false});
 let org_canvas = document.createElement("canvas");
 let org_ctx = org_canvas.getContext("2d", {alpha: false});
 let w = org_canvas.width = original.width;
 let h = org_canvas.height = original.height;
-let testdata = ctx.createImageData(w, h);
+
+clear();
+
+let testdata = ctx.getImageData(0, 0, w, h);
 let testdata_d = testdata.data;
-let backup = ctx.createImageData(w, h);
+let backup = ctx.getImageData(0, 0, w, h);
 let backup_d = backup.data;
-let history = [];
 
 org_ctx.drawImage(original, 0, 0, w, h);
 
@@ -48,20 +53,14 @@ let orgdata_d = orgdata.data;
 for(let y=0; y<h; y++) {
 	for(let x=0; x<w; x++) {
 		let i = (x + y*w) * 4;
-		testdata_d[i + 0] = 0;
-		testdata_d[i + 1] = 0;
-		testdata_d[i + 2] = 0;
-		testdata_d[i + 3] = 255;
-		backup_d[i + 0] = 0;
-		backup_d[i + 1] = 0;
-		backup_d[i + 2] = 0;
-		backup_d[i + 3] = 255;
 		org_sum += orgdata_d[i + 0] + orgdata_d[i + 1] + orgdata_d[i + 2];
 	}
 }
 
 toggleBtn.onclick = play_toggle;
 replayBtn.onclick = replay;
+exportBtn.onclick = exportData;
+importBtn.onclick = importData;
 requestAnimationFrame(frame);
 
 setInterval(() => {
@@ -84,12 +83,14 @@ function frame() {
 	
 	if(running) {
 		let start_time = performance.now();
+		let found = false;
 		
 		while(true) {
 			let now = performance.now();
+			let delta = now - start_time;
 			
-			if(now - start_time <= 16) {
-				iteration();
+			if(delta <= 16 || found === false) {
+				found = iteration() || found;
 			}
 			else {
 				break;
@@ -126,12 +127,12 @@ function iteration()
 
 function splash()
 {
-	let cx = Math.random() * 255 | 0;
-	let cy = Math.random() * 255 | 0;
+	let cx = Math.random() * w | 0;
+	let cy = Math.random() * h | 0;
 	let ra = (1 + Math.random() ** 2 * 128) | 0;
-	let r = Math.random() * 255 | 0;
-	let g = Math.random() * 255 | 0;
-	let b = Math.random() * 255 | 0;
+	let r = Math.random() * 256 | 0;
+	let g = Math.random() * 256 | 0;
+	let b = Math.random() * 256 | 0;
 	let a = (1 + Math.random() * 255) / 255;
 	let impro = draw_splash(cx, cy, ra, r, g, b, a);
 	return {cx, cy, ra, r, g, b, a, impro};
@@ -189,10 +190,15 @@ function draw_splash(cx, cy, ra, r, g, b, a, test = true)
 	}
 }
 
-function replay()
+function clear()
 {
 	ctx.fillStyle = "black";
 	ctx.fillRect(0,0,w,h);
+}
+
+function replay()
+{
+	clear();
 	testdata = ctx.getImageData(0, 0, w, h);
 	testdata_d = testdata.data;
 	
@@ -202,7 +208,9 @@ function replay()
 	
 	function replay_frame()
 	{
-		for(let i=0; i<3 && step < history.length; i++) {
+		let frame_impro = 0;
+		
+		while(step < history.length && frame_impro < 100_000) {
 			let entry = history[step];
 			
 			draw_splash(
@@ -212,15 +220,42 @@ function replay()
 			);
 			
 			step++;
+			frame_impro += entry.impro;
 		}
 		
 		ctx.putImageData(testdata, 0, 0);
-		splashCount.innerText = "" + step;
+		splashCount.innerText = step;
 		
 		if(step < history.length) {
 			requestAnimationFrame(replay_frame);
 		}
 	}
+}
+
+function exportData()
+{
+	let anchor = document.createElement("a");
+	let blob = new Blob([JSON.stringify(history)]);
+	anchor.href = URL.createObjectURL(blob);
+	anchor.download = "evolve-export.json";
+	anchor.click();
+}
+
+async function importData()
+{
+	let input = document.createElement("input");
+	input.type = "file";
+	input.click();
+	await new Promise(res => input.onchange = res);
+	
+	let reader = new FileReader();
+	reader.readAsText(input.files[0]);
+	await new Promise(res => reader.onload = res);
+	
+	let text = reader.result;
+	let data = JSON.parse(text);
+	history = data;
+	replay();
 }
 
 function play_toggle()
